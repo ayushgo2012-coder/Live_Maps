@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Pro - Real-Time Tracker & Route Planner</title>
+    
+    <!-- Tailwind CSS for premium responsive layout -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet Styles & Scripts -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    
+    <!-- FontAwesome for Google Maps lookalike icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        /* Custom scrollbar for sidebar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #dadce0;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #bdc1c6;
+        }
+        /* Pulse Animation for user blue dot */
+        .gps-blue-dot {
+            width: 18px;
+            height: 18px;
+            background-color: #1a73e8;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(26, 115, 232, 0.8);
+            animation: pulse-ring 2s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.6); }
+            70% { box-shadow: 0 0 0 14px rgba(26, 115, 232, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
+        }
+        /* Transit simulated bus / car marker style */
+        .sim-vehicle-dot {
+            width: 24px;
+            height: 24px;
+            background-color: #ea4335;
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            transform: rotate(0deg);
+            transition: transform 0.1s linear;
+        }
+        /* Routing control custom styling to hide native Leaflet raw table */
+        .leaflet-routing-container {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 overflow-hidden font-sans select-none">
+
+    <!-- Primary Sidebar / Search Panel (Google Maps Theme) -->
+    <div class="absolute top-4 left-4 z-[1000] w-full max-w-[390px] px-2 sm:px-0">
+        <div class="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden flex flex-col max-h-[92vh]">
+            
+            <!-- Google Maps Header Tabs -->
+            <div class="flex items-center justify-between border-b border-gray-100 p-1 bg-gray-50">
+                <div class="flex space-x-1 w-full">
+                    <button onclick="switchTab('search')" id="tab-search" class="flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition duration-200 bg-white text-blue-600 shadow-sm">
+                        <i class="fa-solid fa-magnifying-glass"></i> Search Map
+                    </button>
+                    <button onclick="switchTab('directions')" id="tab-directions" class="flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2 transition duration-200 text-gray-600 hover:bg-gray-100">
+                        <i class="fa-solid fa-diamond-turn-right"></i> Directions
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 1: Search & Explore -->
+            <div id="panel-search" class="p-4 flex flex-col space-y-3">
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-400">
+                        <i class="fa-solid fa-location-dot text-red-500"></i>
+                    </div>
+                    <input type="text" id="map-main-search" placeholder="Search Google Maps..." autocomplete="off"
+                        class="w-full pl-10 pr-10 py-3 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm outline-none transition duration-200">
+                    <button onclick="triggerQuickSearch()" class="absolute inset-y-0 right-3 flex items-center text-blue-600 hover:text-blue-800">
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <ul id="main-suggestions" class="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto z-[2000] hidden"></ul>
+                </div>
+
+                <!-- Google Maps "Explore Nearby" Chips -->
+                <div>
+                    <span class="text-[11px] font-bold text-gray-400 tracking-wider uppercase block mb-2">Explore Nearby</span>
+                    <div class="flex items-center space-x-2 overflow-x-auto pb-1 custom-scrollbar">
+                        <button onclick="exploreNearby('restaurant', '🍴 Restaurants')" class="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-full text-xs font-medium border border-red-100 shrink-0 transition">
+                            <i class="fa-solid fa-utensils"></i> Restaurants
+                        </button>
+                        <button onclick="exploreNearby('cafe', '☕ Cafes')" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-full text-xs font-medium border border-amber-100 shrink-0 transition">
+                            <i class="fa-solid fa-coffee"></i> Cafes
+                        </button>
+                        <button onclick="exploreNearby('gas_station', '⛽ Gas Stations')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-full text-xs font-medium border border-blue-100 shrink-0 transition">
+                            <i class="fa-solid fa-gas-pump"></i> Gas
+                        </button>
+                        <button onclick="exploreNearby('hotel', '🏨 Hotels')" class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium border border-indigo-100 shrink-0 transition">
+                            <i class="fa-solid fa-hotel"></i> Hotels
+                        </button>
+                        <button onclick="exploreNearby('mall', '🛍️ Shopping')" class="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 rounded-full text-xs font-medium border border-green-100 shrink-0 transition">
+                            <i class="fa-solid fa-bag-shopping"></i> Shopping
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: Directions Planner -->
+            <div id="panel-directions" class="p-4 flex flex-col space-y-3 hidden">
+                <div class="flex items-start space-x-2">
+                    <div class="flex flex-col items-center justify-between h-20 py-2">
+                        <i class="fa-regular fa-circle-dot text-blue-500 text-xs"></i>
+                        <div class="w-0.5 h-12 border-dashed border-l-2 border-gray-300"></div>
+                        <i class="fa-solid fa-location-dot text-red-500 text-sm"></i>
+                    </div>
+                    <div class="flex-1 space-y-2">
+                        <!-- Start Input -->
+                        <div class="relative">
+                            <input type="text" id="start-search" placeholder="Choose starting point..." autocomplete="off"
+                                class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm border-0 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition">
+                            <ul id="start-suggestions" class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto z-[2000] hidden"></ul>
+                        </div>
+                        <!-- Destination Input -->
+                        <div class="relative">
+                            <input type="text" id="end-search" placeholder="Choose destination..." autocomplete="off"
+                                class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm border-0 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition">
+                            <ul id="end-suggestions" class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto z-[2000] hidden"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 pt-1">
+                    <button onclick="calculateCustomRoute()" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs shadow-md transition duration-200">
+                        <i class="fa-solid fa-route"></i> Find Route
+                    </button>
+                    <button onclick="swapRouteEndpoints()" class="px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition" title="Swap start & destination">
+                        <i class="fa-solid fa-arrows-up-down"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Route Info Panel (Visible when route is active) -->
+            <div id="route-details-panel" class="hidden border-t border-gray-100 bg-blue-50/50 p-4 flex-col space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-blue-600 font-bold uppercase tracking-wider">Fastest Route</span>
+                        <div class="flex items-baseline space-x-2">
+                            <h4 id="route-duration" class="text-2xl font-black text-gray-800">-- mins</h4>
+                            <span id="route-distance" class="text-sm font-medium text-gray-500">(-- km)</span>
+                        </div>
+                    </div>
+                    <button onclick="startRouteSimulation()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 flex items-center gap-1.5">
+                        <i class="fa-solid fa-play"></i> Start Navigate
+                    </button>
+                </div>
+                <!-- Mini Turn-by-Turn Header -->
+                <div class="bg-white p-3 rounded-xl border border-blue-100 flex items-center space-x-3 shadow-sm">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                        <i id="next-step-icon" class="fa-solid fa-arrow-up"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-[11px] uppercase tracking-wider font-extrabold text-blue-500">Upcoming Step</p>
+                        <p id="next-step-instruction" class="text-xs font-bold text-gray-700 truncate">Calculate a route to begin guidance</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- POI Detail Card -->
+            <div id="poi-details-panel" class="hidden border-t border-gray-100 p-4 flex flex-col space-y-3 bg-white">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h4 id="poi-title" class="text-base font-bold text-gray-800">Selected Landmark</h4>
+                        <p id="poi-type" class="text-xs text-gray-500 italic">Historical site</p>
+                    </div>
+                    <button onclick="closePoiDetails()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <!-- Stars & Ratings -->
+                <div class="flex items-center space-x-2 text-xs">
+                    <span class="text-amber-500 font-bold flex items-center gap-0.5">
+                        4.7 <i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i>
+                    </span>
+                    <span class="text-gray-400">(148 reviews)</span>
+                    <span class="text-green-600 font-semibold">• Open now</span>
+                </div>
+                <!-- Image Preview Mock -->
+                <div class="w-full h-24 rounded-lg bg-gray-100 overflow-hidden relative">
+                    <img id="poi-img" src="https://images.unsplash.com/photo-1569336415962-a4bd9f69cd83?auto=format&fit=crop&w=400&q=80" alt="POI Image" class="w-full h-full object-cover">
+                    <div class="absolute bottom-1 right-1 bg-black/60 text-[10px] text-white px-2 py-0.5 rounded">Street View Simulation</div>
+                </div>
+                <div class="flex space-x-2">
+                    <button id="poi-route-btn" class="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition shadow-sm">
+                        <i class="fa-solid fa-diamond-turn-right mr-1"></i> Directions to here
+                    </button>
+                    <button onclick="triggerStreetViewMock()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition" title="Simulate Panoramic Street View">
+                        <i class="fa-solid fa-street-view"></i> Street View
+                    </button>
+                </div>
+            </div>
+
+            <!-- Collapsible Directions Instructions List -->
+            <div id="directions-list-container" class="hidden flex-1 overflow-y-auto custom-scrollbar border-t border-gray-100">
+                <div class="bg-gray-50 p-3 sticky top-0 border-b border-gray-100 flex justify-between items-center z-10">
+                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Step-by-step guidance</span>
+                    <button onclick="toggleDirectionsList()" class="text-xs text-blue-600 hover:underline">Collapse</button>
+                </div>
+                <div id="directions-steps" class="p-3 divide-y divide-gray-100 text-xs">
+                    <!-- Dynamic Turn steps will render here -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Active Navigation Overlay Banner (Top Center) -->
+    <div id="navigation-banner" class="absolute top-4 left-1/2 -translate-x-1/2 z-[1001] w-full max-w-sm px-4 hidden">
+        <div class="bg-emerald-600 text-white p-3.5 rounded-2xl shadow-2xl flex items-center space-x-3.5 border border-emerald-500/30">
+            <div class="w-10 h-10 rounded-full bg-emerald-700/80 flex items-center justify-center text-lg shadow-inner">
+                <i id="nav-banner-icon" class="fa-solid fa-arrow-up"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p id="nav-banner-instruction" class="font-bold text-sm leading-tight truncate">Drive straight for 350 meters</p>
+                <div class="flex items-center space-x-2 mt-0.5 text-xs text-emerald-100">
+                    <span id="nav-banner-time">Remaining: 1 min</span>
+                    <span>•</span>
+                    <span id="nav-banner-dist">150 m</span>
+                </div>
+            </div>
+            <button onclick="stopRouteSimulation()" class="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold shadow transition shrink-0">
+                End Run
+            </button>
+        </div>
+    </div>
+
+    <!-- Right Side Map Controls -->
+    <div class="absolute top-4 right-4 z-[1000] flex flex-col space-y-2">
+        <!-- Layer Selector Button -->
+        <div class="relative group">
+            <button class="bg-white text-gray-700 p-3 rounded-xl shadow-lg hover:bg-gray-50 transition border border-gray-200/50 flex items-center justify-center" title="Map Layers">
+                <i class="fa-solid fa-layer-group text-lg"></i>
+            </button>
+            <!-- Dropdown Layer Panel -->
+            <div class="absolute right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 w-56 hidden group-hover:block transition-all duration-200">
+                <h5 class="text-xs font-extrabold text-gray-400 uppercase tracking-wide mb-2.5">Map Types</h5>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="setMapLayer('street')" class="flex flex-col items-center p-1.5 border border-gray-200 hover:border-blue-500 rounded-lg text-center transition">
+                        <div class="w-full h-12 bg-blue-100 rounded mb-1 overflow-hidden relative">
+                            <img src="https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&w=80&q=50" class="w-full h-full object-cover">
+                        </div>
+                        <span class="text-[10px] font-bold text-gray-600">Standard</span>
+                    </button>
+                    <button onclick="setMapLayer('satellite')" class="flex flex-col items-center p-1.5 border border-gray-200 hover:border-blue-500 rounded-lg text-center transition">
+                        <div class="w-full h-12 bg-emerald-900 rounded mb-1 overflow-hidden relative">
+                            <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=80&q=50" class="w-full h-full object-cover">
+                        </div>
+                        <span class="text-[10px] font-bold text-gray-600">Satellite</span>
+                    </button>
+                    <button onclick="setMapLayer('terrain')" class="flex flex-col items-center p-1.5 border border-gray-200 hover:border-blue-500 rounded-lg text-center transition">
+                        <div class="w-full h-12 bg-amber-100 rounded mb-1 overflow-hidden relative">
+                            <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=80&q=50" class="w-full h-full object-cover">
+                        </div>
+                        <span class="text-[10px] font-bold text-gray-600">Terrain</span>
+                    </button>
+                    <button onclick="setMapLayer('dark')" class="flex flex-col items-center p-1.5 border border-gray-200 hover:border-blue-500 rounded-lg text-center transition">
+                        <div class="w-full h-12 bg-gray-900 rounded mb-1 overflow-hidden relative">
+                            <img src="https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?auto=format&fit=crop&w=80&q=50" class="w-full h-full object-cover">
+                        </div>
+                        <span class="text-[10px] font-bold text-gray-600">Night Mode</span>
+                    </button>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-gray-100">
+                    <label class="flex items-center justify-between cursor-pointer">
+                        <span class="text-xs font-semibold text-gray-600">Traffic Simulation Overlay</span>
+                        <input type="checkbox" id="traffic-toggle" class="sr-only peer" onchange="toggleTrafficOverlay()">
+                        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 relative"></div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Zoom Controls -->
+        <button onclick="map.zoomIn()" class="bg-white text-gray-700 p-3 rounded-xl shadow-lg hover:bg-gray-50 transition border border-gray-200/50 flex items-center justify-center font-bold" title="Zoom In">
+            <i class="fa-solid fa-plus text-lg"></i>
+        </button>
+        <button onclick="map.zoomOut()" class="bg-white text-gray-700 p-3 rounded-xl shadow-lg hover:bg-gray-50 transition border border-gray-200/50 flex items-center justify-center font-bold" title="Zoom Out">
+            <i class="fa-solid fa-minus text-lg"></i>
+        </button>
+    </div>
+
+    <!-- Bottom Action Controls -->
+    <div class="absolute bottom-6 right-6 z-[1000] flex flex-col space-y-3 items-end">
+        
+        <!-- Pegman Interactive Street View simulator -->
+        <button onclick="triggerStreetViewMock()" class="bg-yellow-400 hover:bg-yellow-500 text-gray-900 p-3.5 rounded-full shadow-2xl border-2 border-white flex items-center justify-center transition-all duration-200 hover:scale-105" title="Interactive Immersive View">
+            <i class="fa-solid fa-street-view text-xl"></i>
+        </button>
+
+        <!-- Current Location Tracker Button -->
+        <button onclick="goToCurrentLocation()" class="bg-white hover:bg-blue-50 text-blue-600 px-5 py-3 rounded-full shadow-2xl border border-gray-100 flex items-center gap-2.5 font-bold text-sm transition-all duration-200 hover:scale-105">
+            <i class="fa-solid fa-location-crosshairs text-lg animate-pulse"></i> Center on Me
+        </button>
+    </div>
+
+    <!-- Immersive Street View Modal Panel -->
+    <div id="street-view-modal" class="fixed inset-0 bg-black/95 z-[2000] hidden flex-col items-center justify-center p-4">
+        <div class="relative w-full max-w-4xl bg-gray-900 rounded-3xl overflow-hidden shadow-2xl border border-white/10">
+            <!-- Modal Header -->
+            <div class="absolute top-4 left-4 z-10 bg-black/60 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2">
+                <span class="w-2.5 h-2.5 bg-green-500 rounded-full animate-ping"></span>
+                <span id="street-view-location-title">Panoramic Street View</span>
+            </div>
+            <button onclick="closeStreetView()" class="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/60 text-white hover:bg-black/80 flex items-center justify-center transition">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <!-- Panoramic Viewer Area with Unsplash matching destination images -->
+            <div class="w-full h-[65vh] relative overflow-hidden flex items-center justify-center">
+                <img id="street-view-image" src="" class="absolute inset-0 w-full h-full object-cover scale-110 blur-sm brightness-75 transition-all duration-700" alt="Street View Background">
+                <div class="relative z-10 w-full h-full flex items-center justify-center">
+                    <!-- Perspective Container for depth -->
+                    <div class="w-full h-full max-w-full overflow-hidden flex items-center justify-center relative cursor-grab active:cursor-grabbing" id="pano-drag-container">
+                        <img id="street-view-pano" src="" class="h-full object-cover transition-transform duration-300 ease-out" style="width: auto; max-width: none;" alt="Scenic Panoramic Location View">
+                    </div>
+                </div>
+                <!-- Controls Overlay -->
+                <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 px-5 py-2 rounded-full text-white flex items-center gap-6 text-sm backdrop-blur-md border border-white/10">
+                    <button onclick="rotatePano(-45)" class="hover:text-blue-400 transition"><i class="fa-solid fa-rotate-left mr-1"></i> Look Left</button>
+                    <span class="text-gray-500">|</span>
+                    <button onclick="rotatePano(45)" class="hover:text-blue-400 transition">Look Right <i class="fa-solid fa-rotate-right mr-1"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert / Banner Custom Overlay -->
+    <div id="custom-alert" class="fixed top-6 left-1/2 -translate-x-1/2 z-[3000] bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl hidden flex items-center gap-3 transition-all duration-300 border border-white/10">
+        <i class="fa-solid fa-circle-info text-blue-400 text-lg"></i>
+        <span id="custom-alert-msg" class="text-sm font-semibold">Alert text</span>
+    </div>
+
+    <!-- The Map DIV -->
+    <div id="map"></div>
+
+    <!-- Map libraries & optional Socket.io -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    
+    <!-- Socket IO Setup & Safety fallback -->
+    <script>
+        let socket;
+        try {
+            // Include socket.io if hosted on our server
+            const socketScript = document.createElement('script');
+            socketScript.src = "/socket.io/socket.io.js";
+            socketScript.onload = () => {
+                socket = io();
+                setupSocketListeners();
+            };
+            document.head.appendChild(socketScript);
+        } catch (e) {
+            console.log("Socket client script loading bypassed. Running in standalone local test mode.");
+        }
+    </script>
+    
+    <script>
+        // Set Default View to current location (Asansol, West Bengal, India)
+        const defaultLat = 23.6889;
+        const defaultLng = 86.9749;
+        
+        // High-fidelity instant autocomplete fallback dataset (near West Bengal / Asansol area)
+        const fallbackPlaces = [
+            { name: "Asansol Junction Railway Station, West Bengal", center: L.latLng(23.6826, 86.9798) },
+            { name: "City Centre Mall, Asansol", center: L.latLng(23.6841, 86.9612) },
+            { name: "Galaxy Mall, Burnpur Road, Asansol", center: L.latLng(23.6662, 86.9535) },
+            { name: "Sentrum Mall, Shristi Nagar, Asansol", center: L.latLng(23.7011, 86.9452) },
+            { name: "Kalyanpur Satellite Township, Asansol", center: L.latLng(23.7121, 86.9698) },
+            { name: "Nehru Park, Burnpur, Asansol", center: L.latLng(23.6421, 86.9312) },
+            { name: "Satabdi Park, Asansol", center: L.latLng(23.6925, 86.9785) },
+            { name: "Rabindra Bhavan, Asansol", center: L.latLng(23.6855, 86.9712) },
+            { name: "Asansol Engineering College, Kanyapur", center: L.latLng(23.7118, 86.9502) },
+            { name: "Gora Bazar, Asansol", center: L.latLng(23.6812, 86.9850) },
+            { name: "Howrah Railway Station, Kolkata", center: L.latLng(22.5834, 88.3411) },
+            { name: "Netaji Subhash Chandra Bose International Airport, Kolkata", center: L.latLng(22.6547, 88.4467) },
+            { name: "Victoria Memorial, Kolkata", center: L.latLng(22.5448, 88.3426) },
+            { name: "Science City, Kolkata", center: L.latLng(22.5411, 88.3962) },
+            { name: "Park Street, Kolkata", center: L.latLng(22.5484, 88.3562) }
+        ];
+
+        // Initialize Map and zoom position
+        const map = L.map('map', { zoomControl: false }).setView([defaultLat, defaultLng], 12);
+
+        // Keep track of Tile Layers
+        const mapTiles = {
+            street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }),
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            }),
+            terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenTopoMap contributors'
+            }),
+            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© CartoDB'
+            })
+        };
+
+        // Add Default Tile Layer
+        mapTiles.street.addTo(map);
+        let activeTileKey = 'street';
+
+        function setMapLayer(layerKey) {
+            map.removeLayer(mapTiles[activeTileKey]);
+            mapTiles[layerKey].addTo(map);
+            activeTileKey = layerKey;
+        }
+
+        // Custom Blue Marker styles
+        const blueDotIcon = L.divIcon({
+            className: 'gps-container',
+            html: '<div class="gps-blue-dot"></div>',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+        });
+
+        // POI Marker Icons mapping
+        const poiIcons = {
+            restaurant: '<div class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-utensils text-xs"></i></div>',
+            cafe: '<div class="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-coffee text-xs"></i></div>',
+            gas_station: '<div class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-gas-pump text-xs"></i></div>',
+            hotel: '<div class="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-hotel text-xs"></i></div>',
+            mall: '<div class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-bag-shopping text-xs"></i></div>',
+            default: '<div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center border-2 border-white shadow-md"><i class="fa-solid fa-location-dot text-xs"></i></div>'
+        };
+
+        // State variables
+        const markers = {};
+        let myMarker = null;
+        let myAccuracyCircle = null;
+        let userLocation = { latitude: defaultLat, longitude: defaultLng };
+        let routingControl = null;
+
+        let startCoords = null;
+        let endCoords = null;
+        let nearbyPoiMarkers = [];
+
+        // Traffic overlay layer (dynamic canvas simulation of glowing lines)
+        let trafficOverlayLayer = null;
+
+        const geocoder = L.Control.Geocoder.nominatim();
+
+        // Custom Banner Alert system
+        function showAlert(msg) {
+            const banner = document.getElementById('custom-alert');
+            document.getElementById('custom-alert-msg').innerText = msg;
+            banner.classList.remove('hidden');
+            setTimeout(() => banner.classList.add('hidden'), 4000);
+        }
+
+        // Navigation Switcher Tabs
+        function switchTab(tab) {
+            const btnSearch = document.getElementById('tab-search');
+            const btnDir = document.getElementById('tab-directions');
+            const panelSearch = document.getElementById('panel-search');
+            const panelDir = document.getElementById('panel-directions');
+
+            if (tab === 'search') {
+                btnSearch.classList.add('bg-white', 'text-blue-600', 'shadow-sm');
+                btnSearch.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                btnDir.classList.remove('bg-white', 'text-blue-600', 'shadow-sm');
+                btnDir.classList.add('text-gray-600', 'hover:bg-gray-100');
+                panelSearch.classList.remove('hidden');
+                panelDir.classList.add('hidden');
+            } else {
+                btnDir.classList.add('bg-white', 'text-blue-600', 'shadow-sm');
+                btnDir.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                btnSearch.classList.remove('bg-white', 'text-blue-600', 'shadow-sm');
+                btnSearch.classList.add('text-gray-600', 'hover:bg-gray-100');
+                panelDir.classList.remove('hidden');
+                panelSearch.classList.add('hidden');
+            }
+        }
+
+        // Center on User GPS
+        function goToCurrentLocation() {
+            if (userLocation) {
+                map.setView([userLocation.latitude, userLocation.longitude], 16);
+                showAlert("Centering map view on your location");
+            } else {
+                showAlert("Acquiring GPS Signal... Please allow location access.");
+            }
+        }
+
+        // Set User Location on Start
+        function initializeGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        const { latitude, longitude, accuracy } = position.coords;
+                        const newPoint = L.latLng(latitude, longitude);
+                        
+                        userLocation = { latitude, longitude };
+
+                        if (!myMarker) {
+                            map.setView(newPoint, 15);
+                            document.getElementById('start-search').value = "My Live Location";
+                            startCoords = newPoint;
+                            
+                            myMarker = L.marker(newPoint, { icon: blueDotIcon }).addTo(map);
+                            myMarker.bindPopup("<b>Your Current Location</b>");
+                            
+                            myAccuracyCircle = L.circle(newPoint, {
+                                radius: accuracy, 
+                                color: '#1a73e8',
+                                fillColor: '#1a73e8',
+                                fillOpacity: 0.12,
+                                weight: 1
+                            }).addTo(map);
+                        } else {
+                            myMarker.setLatLng(newPoint);
+                            if (myAccuracyCircle) {
+                                myAccuracyCircle.setLatLng(newPoint);
+                                myAccuracyCircle.setRadius(accuracy);
+                            }
+                        }
+
+                        // Emit to other connected Socket users if active
+                        if (socket) {
+                            socket.emit('send-location', { latitude, longitude });
+                        }
+                    },
+                    (error) => {
+                        console.warn("GPS Tracking blocked or failed. Simulating default start coordinates.", error);
+                        // Place a mock marker if GPS fails
+                        const mockPoint = L.latLng(defaultLat, defaultLng);
+                        userLocation = { latitude: defaultLat, longitude: defaultLng };
+                        if (!myMarker) {
+                            myMarker = L.marker(mockPoint, { icon: blueDotIcon }).addTo(map);
+                            myMarker.bindPopup("<b>Simulated Location (GPS off)</b>");
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                );
+            }
+        }
+
+        // Hybrid Zero-Lag suggestions with strict rate limit guardrails
+        function setupAutocomplete(inputId, suggestionsId, callback) {
+            const input = document.getElementById(inputId);
+            const suggestionsList = document.getElementById(suggestionsId);
+            let debounceTimer;
+
+            input.addEventListener('input', () => {
+                clearTimeout(debounceTimer);
+                const query = input.value.trim();
+
+                if (query.length < 3) {
+                    suggestionsList.classList.add('hidden');
+                    return;
+                }
+
+                // 1. Instantly display matched fallback local results to avoid Nominatim delays
+                const localMatches = fallbackPlaces.filter(p => 
+                    p.name.toLowerCase().includes(query.toLowerCase())
+                );
+                renderSuggestions(localMatches, query);
+
+                // 2. Debounce call to live Nominatim API to fetch external coordinates smoothly
+                debounceTimer = setTimeout(() => {
+                    try {
+                        geocoder.geocode(query, (results) => {
+                            const apiMatches = [];
+                            if (results && results.length > 0) {
+                                results.forEach(r => {
+                                    apiMatches.push({
+                                        name: r.name,
+                                        center: r.center
+                                    });
+                                });
+                            }
+
+                            // Combine results & remove duplicates
+                            const merged = [...localMatches];
+                            apiMatches.forEach(apiP => {
+                                if (!merged.some(m => m.name.toLowerCase() === apiP.name.toLowerCase())) {
+                                    merged.push(apiP);
+                                }
+                            });
+
+                            renderSuggestions(merged, query);
+                        });
+                    } catch (err) {
+                        console.error("Geocoder error safely caught: ", err);
+                        renderSuggestions(localMatches, query);
+                    }
+                }, 400);
+            });
+
+            function renderSuggestions(places, queryText) {
+                suggestionsList.innerHTML = '';
+                if (!places || places.length === 0) {
+                    suggestionsList.classList.add('hidden');
+                    return;
+                }
+
+                places.slice(0, 6).forEach((place) => {
+                    const li = document.createElement('li');
+                    li.className = "p-3 text-xs border-b border-gray-100 hover:bg-gray-50 cursor-pointer text-gray-700 flex items-center gap-2 transition";
+                    li.innerHTML = `<i class="fa-solid fa-location-dot text-gray-400"></i> <span>${place.name}</span>`;
+                    li.addEventListener('click', () => {
+                        input.value = place.name;
+                        suggestionsList.classList.add('hidden');
+                        callback(place.center);
+                    });
+                    suggestionsList.appendChild(li);
+                });
+                suggestionsList.classList.remove('hidden');
+            }
+
+            document.addEventListener('click', (e) => {
+                if (e.target !== input) {
+                    suggestionsList.classList.add('hidden');
+                }
+            });
+        }
+
+        setupAutocomplete('start-search', 'start-suggestions', (latLng) => { startCoords = latLng; });
+        setupAutocomplete('end-search', 'end-suggestions', (latLng) => { endCoords = latLng; });
+        setupAutocomplete('map-main-search', 'main-suggestions', (latLng) => {
+            map.setView(latLng, 14);
+            endCoords = latLng;
+            exploreNearbyLocationsAtLatLng(latLng);
+        });
+
+        // Trigger Main geocoder search
+        function triggerQuickSearch() {
+            const query = document.getElementById('map-main-search').value.trim();
+            if (!query) return;
+
+            // Check fallback dictionary first
+            const localMatch = fallbackPlaces.find(p => p.name.toLowerCase().includes(query.toLowerCase()));
+            if (localMatch) {
+                map.setView(localMatch.center, 14);
+                endCoords = localMatch.center;
+                exploreNearbyLocationsAtLatLng(localMatch.center);
+                return;
+            }
+
+            try {
+                geocoder.geocode(query, (results) => {
+                    if (results && results.length > 0) {
+                        const first = results[0];
+                        map.setView(first.center, 14);
+                        endCoords = first.center;
+                        exploreNearbyLocationsAtLatLng(first.center);
+                    } else {
+                        showAlert("Location not found. Try searching popular landmarks like 'City Centre Mall'!");
+                    }
+                });
+            } catch (e) {
+                console.error("Safely bypassed search error: ", e);
+                showAlert("Search query timed out. Please try again.");
+            }
+        }
+
+        // Swaps route starting & ending fields
+        function swapRouteEndpoints() {
+            const startInput = document.getElementById('start-search');
+            const endInput = document.getElementById('end-search');
+            
+            const tempVal = startInput.value;
+            startInput.value = endInput.value;
+            endInput.value = tempVal;
+
+            const tempCoords = startCoords;
+            startCoords = endCoords;
+            endCoords = tempCoords;
+        }
+
+        // Helper function to geocode values dynamically on button click
+        function resolveLocation(queryText, callback) {
+            if (!queryText) {
+                callback(null);
+                return;
+            }
+            if (queryText === "My Live Location" && userLocation) {
+                callback(L.latLng(userLocation.latitude, userLocation.longitude));
+                return;
+            }
+
+            // Check fallbacks first
+            const localMatch = fallbackPlaces.find(p => p.name.toLowerCase() === queryText.toLowerCase());
+            if (localMatch) {
+                callback(localMatch.center);
+                return;
+            }
+
+            try {
+                geocoder.geocode(queryText, (results) => {
+                    if (results && results.length > 0) {
+                        callback(results[0].center);
+                    } else {
+                        callback(null);
+                    }
+                });
+            } catch (err) {
+                console.error("Resolve error caught safely: ", err);
+                callback(null);
+            }
+        }
+
+        // Routing Engine Calculation
+        function calculateCustomRoute() {
+            const startVal = document.getElementById('start-search').value;
+            const endVal = document.getElementById('end-search').value;
+
+            if (!startVal || !endVal) {
+                showAlert("Specify both Start & Destination locations!");
+                return;
+            }
+
+            resolveLocation(startVal, (resolvedStart) => {
+                if (!resolvedStart) {
+                    showAlert("Can't find start address: " + startVal);
+                    return;
+                }
+                startCoords = resolvedStart;
+
+                resolveLocation(endVal, (resolvedEnd) => {
+                    if (!resolvedEnd) {
+                        showAlert("Can't find destination: " + endVal);
+                        return;
+                    }
+                    endCoords = resolvedEnd;
+
+                    if (routingControl) {
+                        map.removeControl(routingControl);
+                    }
+
+                    // Create stylish google blue route line
+                    routingControl = L.Routing.control({
+                        waypoints: [startCoords, endCoords],
+                        routeWhileDragging: false,
+                        addWaypoints: false,
+                        lineOptions: {
+                            styles: [
+                                { color: '#1351b4', weight: 8, opacity: 0.9 }, // dark background shadow border
+                                { color: '#1a73e8', weight: 5, opacity: 1 }   // main bright blue route line
+                            ]
+                        }
+                    }).addTo(map);
+
+                    routingControl.on('routesfound', function(e) {
+                        const routes = e.routes;
+                        if (!routes || routes.length === 0) return;
+                        
+                        // Save the globally calculated active route safely
+                        window.activeRoute = routes[0];
+                        const summary = routes[0].summary;
+                        
+                        // Parse distance & dynamic times
+                        const distKm = (summary.totalDistance / 1000).toFixed(1);
+                        const durMin = Math.round(summary.totalTime / 60);
+
+                        // Update panels
+                        document.getElementById('route-duration').innerText = `${durMin} mins`;
+                        document.getElementById('route-distance').innerText = `(${distKm} km)`;
+                        
+                        // Parse turn step guidelines
+                        const steps = routes[0].instructions;
+                        const stepsContainer = document.getElementById('directions-steps');
+                        stepsContainer.innerHTML = '';
+
+                        if (steps && steps.length > 0) {
+                            // Set upcoming next step instruction
+                            document.getElementById('next-step-instruction').innerText = steps[0].text;
+                            setStepIcon(steps[0].type, 'next-step-icon');
+
+                            steps.forEach((step, idx) => {
+                                const stepDiv = document.createElement('div');
+                                stepDiv.className = "py-2.5 flex items-start space-x-3 text-gray-700 hover:bg-gray-50 transition px-1";
+                                
+                                const iconId = `step-icon-${idx}`;
+                                stepDiv.innerHTML = `
+                                    <div class="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 shrink-0">
+                                        <i id="${iconId}" class="fa-solid fa-diamond-turn-right text-[10px]"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="font-semibold text-xs leading-tight">${step.text}</p>
+                                        <span class="text-[10px] text-gray-400 font-medium">${Math.round(step.distance)} meters away</span>
+                                    </div>
+                                `;
+                                stepsContainer.appendChild(stepDiv);
+                                setStepIcon(step.type, iconId);
+                            });
+
+                            document.getElementById('directions-list-container').classList.remove('hidden');
+                        }
+
+                        document.getElementById('route-details-panel').classList.remove('hidden');
+                        document.getElementById('route-details-panel').classList.add('flex');
+
+                        const bounds = L.latLngBounds(startCoords, endCoords);
+                        map.fitBounds(bounds, { padding: [80, 80] });
+                        showAlert(`Route found! ${distKm}km • Estimated ${durMin} mins`);
+                    });
+
+                });
+            });
+        }
+
+        // Toggle Expand of instructions
+        function toggleDirectionsList() {
+            const list = document.getElementById('directions-list-container');
+            list.classList.toggle('hidden');
+        }
+
+        // Icon mapper for steps
+        function setStepIcon(type, iconElementId) {
+            const iconEl = document.getElementById(iconElementId);
+            if (!iconEl) return;
+            
+            iconEl.className = "fa-solid";
+            
+            const mapping = {
+                'Straight': 'fa-arrow-up',
+                'Left': 'fa-arrow-turn-up fa-rotate-270 text-blue-500',
+                'Right': 'fa-arrow-turn-up fa-rotate-90 text-blue-500',
+                'SlightLeft': 'fa-arrow-left text-blue-400',
+                'SlightRight': 'fa-arrow-right text-blue-400',
+                'Roundabout': 'fa-rotate text-emerald-500',
+                'DestinationReached': 'fa-flag-checkered text-red-500'
+            };
+
+            const classToAdd = mapping[type] || 'fa-location-arrow';
+            iconEl.className = `fa-solid ${classToAdd}`;
+        }
+
+        // ------------------ ROUTE SIMULATION ------------------
+        let simulationInterval = null;
+        let simVehicleMarker = null;
+
+        function startRouteSimulation() {
+            if (!window.activeRoute) {
+                showAlert("Please plan a route first to navigate!");
+                return;
+            }
+
+            const pathCoords = window.activeRoute.coordinates;
+            const steps = window.activeRoute.instructions;
+            if (!pathCoords || pathCoords.length < 2) return;
+
+            // Clear previous simulation
+            stopRouteSimulation();
+
+            let currentIdx = 0;
+            const totalSteps = pathCoords.length;
+
+            // Create vehicle marker (glowing orange transit ring)
+            const vehicleIcon = L.divIcon({
+                className: 'sim-vehicle-container',
+                html: '<div class="sim-vehicle-dot"><i class="fa-solid fa-car-side"></i></div>',
+                iconSize: [26, 26],
+                iconAnchor: [13, 13]
+            });
+
+            simVehicleMarker = L.marker(pathCoords[0], { icon: vehicleIcon }).addTo(map);
+            map.setView(pathCoords[0], 17);
+
+            // Open up navigation HUD
+            document.getElementById('navigation-banner').classList.remove('hidden');
+            showAlert("Starting live turn-by-turn guidance!");
+
+            simulationInterval = setInterval(() => {
+                if (currentIdx >= totalSteps) {
+                    stopRouteSimulation();
+                    showAlert("You have reached your destination!");
+                    return;
+                }
+
+                const currentPosition = pathCoords[currentIdx];
+                simVehicleMarker.setLatLng(currentPosition);
+                map.panTo(currentPosition);
+
+                // Update turn instruction banner dynamically based on progress
+                const matchingInstruction = findNearbyInstruction(currentIdx, totalSteps, steps);
+                if (matchingInstruction) {
+                    document.getElementById('nav-banner-instruction').innerText = matchingInstruction.text;
+                    setStepIcon(matchingInstruction.type, 'nav-banner-icon');
+                    
+                    // Trigger sound/speak dynamic simulation!
+                    if ('speechSynthesis' in window && currentIdx % 30 === 0) {
+                        const speech = new SpeechSynthesisUtterance(matchingInstruction.text);
+                        speech.rate = 1.05;
+                        speech.volume = 0.95;
+                        window.speechSynthesis.speak(speech);
+                    }
+                }
+
+                // Update remaining estimates dynamically
+                const remPct = 1 - (currentIdx / totalSteps);
+                const currentDuration = Math.round((window.activeRoute.summary.totalTime / 60) * remPct);
+                const currentDistance = ((window.activeRoute.summary.totalDistance / 1000) * remPct).toFixed(1);
+
+                document.getElementById('nav-banner-time').innerText = `Remaining: ${currentDuration > 0 ? currentDuration : 1} min`;
+                document.getElementById('nav-banner-dist').innerText = `${currentDistance > 0 ? currentDistance : '0.1'} km`;
+
+                currentIdx++;
+            }, 100); // Fluid fast speed simulation
+        }
+
+        function findNearbyInstruction(index, maxIndex, instructions) {
+            const ratio = index / maxIndex;
+            const targetStepIdx = Math.floor(ratio * instructions.length);
+            return instructions[targetStepIdx] || instructions[instructions.length - 1];
+        }
+
+        function stopRouteSimulation() {
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+                simulationInterval = null;
+            }
+            if (simVehicleMarker) {
+                map.removeLayer(simVehicleMarker);
+                simVehicleMarker = null;
+            }
+            document.getElementById('navigation-banner').classList.add('hidden');
+        }
+
+        // ------------------ EXPLORE NEARBY POI LOGIC ------------------
+        function exploreNearby(category, prettyName) {
+            const currentCenter = map.getCenter();
+            exploreNearbyLocationsAtLatLng(currentCenter, category, prettyName);
+        }
+
+        function exploreNearbyLocationsAtLatLng(latlng, category = 'restaurant', prettyName = 'Nearby Places') {
+            // Clear existing nearby markers
+            nearbyPoiMarkers.forEach(m => map.removeLayer(m));
+            nearbyPoiMarkers = [];
+
+            showAlert(`Finding ${prettyName}...`);
+
+            // Generate premium, highly aesthetic mock points with dynamic ratings
+            const mockPlaceNames = {
+                restaurant: ["Golden Harvest Diner", "Flavors of India", "Green Garden Bistro", "Sizzling Slices", "Royal Biryani House"],
+                cafe: ["Brew & Blend Espresso", "The Daily Cup", "Starbucks Reserve Cafe", "Aroma Beans", "Java Lounge"],
+                gas_station: ["Indian Oil Auto", "Shell Express Fuel", "BP Station", "HP Gas Care", "Reliance Petroleum"],
+                hotel: ["The Grand Palace Hotel", "Heritage Executive Inn", "Blue Pine Resort", "Premium Oasis Lodge", "Standard Stay Plaza"],
+                mall: ["Central Plaza Mall", "City Galleria Shopping", "The Junction Square", "Metro Mega Mart", "Apex Arcade"]
+            };
+
+            const selectedNames = mockPlaceNames[category] || ["Fascinating Landmark", "Local Spot", "Vista Point"];
+
+            for (let i = 0; i < 5; i++) {
+                // generate minor randomized offset around current view
+                const latOffset = (Math.random() - 0.5) * 0.02;
+                const lngOffset = (Math.random() - 0.5) * 0.02;
+                const poiLat = latlng.lat + latOffset;
+                const poiLng = latlng.lng + lngOffset;
+
+                const placeName = selectedNames[i % selectedNames.length];
+                const placeType = category.charAt(0).toUpperCase() + category.slice(1);
+
+                // Custom Leaflet DivIcon with beautiful colors matching category
+                const customPoiIcon = L.divIcon({
+                    html: poiIcons[category] || poiIcons.default,
+                    className: '',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                });
+
+                const m = L.marker([poiLat, poiLng], { icon: customPoiIcon }).addTo(map);
+                
+                // Clicking custom POI marker opens elegant mock google details card
+                m.on('click', () => {
+                    displayPoiDetails(placeName, placeType, [poiLat, poiLng]);
+                });
+
+                nearbyPoiMarkers.push(m);
+            }
+
+            // Adjust bounds to include matches
+            const group = new L.featureGroup(nearbyPoiMarkers);
+            map.fitBounds(group.getBounds().pad(0.15));
+        }
+
+        // Show POI details in Left Sidebar
+        function displayPoiDetails(title, type, latLngCoords) {
+            document.getElementById('poi-title').innerText = title;
+            document.getElementById('poi-type').innerText = `${type} • Map Landmark`;
+            
+            // Random high-quality unsplash image matching type to look amazing
+            const categoryToUnsplashTag = {
+                'Restaurant': 'restaurant,gourmet',
+                'Cafe': 'cafe,coffee',
+                'Gas_station': 'gas-station,road',
+                'Hotel': 'hotel,resort',
+                'Mall': 'shopping-mall,store'
+            };
+            const tag = categoryToUnsplashTag[type] || 'city,landmark';
+            document.getElementById('poi-img').src = `https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=400&q=80&sig=${Math.floor(Math.random() * 100)}`;
+
+            // Directions button setup inside POI card
+            const routeBtn = document.getElementById('poi-route-btn');
+            routeBtn.onclick = () => {
+                switchTab('directions');
+                document.getElementById('end-search').value = title;
+                endCoords = L.latLng(latLngCoords[0], latLngCoords[1]);
+                calculateCustomRoute();
+            };
+
+            // Setup panorama scene match
+            window.lastClickedPoiLatLng = latLngCoords;
+
+            document.getElementById('poi-details-panel').classList.remove('hidden');
+            document.getElementById('poi-details-panel').classList.add('flex');
+        }
+
+        function closePoiDetails() {
+            document.getElementById('poi-details-panel').classList.add('hidden');
+        }
+
+        // ------------------ MOCK STREET VIEW PANORAMIC CONTROLLER ------------------
+        let panoRotationAngle = 0;
+
+        function triggerStreetViewMock() {
+            const targetCoords = window.lastClickedPoiLatLng || map.getCenter();
+            
+            // Load beautiful panoramic nature/architecture photo matching location dynamically
+            const streetViewImg = document.getElementById('street-view-pano');
+            const bgImg = document.getElementById('street-view-image');
+            
+            // Random scenic street panoramic imagery URL
+            const url = `https://images.unsplash.com/photo-1506012787146-f92b2d7d6d96?auto=format&fit=crop&w=1600&q=80&sig=${Math.floor(Math.random() * 100)}`;
+            
+            streetViewImg.src = url;
+            bgImg.src = url;
+
+            document.getElementById('street-view-location-title').innerText = `Scenic Immersive View: ${targetCoords.lat.toFixed(4)}, ${targetCoords.lng.toFixed(4)}`;
+            
+            // Reset rotation
+            panoRotationAngle = 0;
+            streetViewImg.style.transform = `translateX(0px) rotateY(0deg) scale(1.15)`;
+
+            document.getElementById('street-view-modal').classList.remove('hidden');
+            document.getElementById('street-view-modal').classList.add('flex');
+            
+            showAlert("Drag panoramic view with mouse or buttons to explore!");
+        }
+
+        function closeStreetView() {
+            document.getElementById('street-view-modal').classList.add('hidden');
+        }
+
+        function rotatePano(degrees) {
+            panoRotationAngle += degrees;
+            const panoImg = document.getElementById('street-view-pano');
+            panoImg.style.transform = `rotate(${panoRotationAngle}deg) scale(1.15)`;
+        }
+
+        // Enable Drag to Rotate panorama simulation
+        const panoContainer = document.getElementById('pano-drag-container');
+        let isDraggingPano = false;
+        let startX = 0;
+
+        panoContainer.addEventListener('mousedown', (e) => {
+            isDraggingPano = true;
+            startX = e.clientX;
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDraggingPano = false;
+        });
+
+        panoContainer.addEventListener('mousemove', (e) => {
+            if (!isDraggingPano) return;
+            const deltaX = e.clientX - startX;
+            if (Math.abs(deltaX) > 5) {
+                rotatePano(deltaX > 0 ? 3 : -3);
+                startX = e.clientX;
+            }
+        });
+
+        // ------------------ REAL-TIME MULTIPLAYER TRAFFIC OVERLAY ------------------
+        function toggleTrafficOverlay() {
+            const isEnabled = document.getElementById('traffic-toggle').checked;
+            if (isEnabled) {
+                addTrafficOverlay();
+            } else {
+                removeTrafficOverlay();
+            }
+        }
+
+        function addTrafficOverlay() {
+            if (trafficOverlayLayer) return;
+
+            // Simulate high traffic congestion (Red, Yellow, Green lines on key segments)
+            const mapCenter = map.getCenter();
+            const lat = mapCenter.lat;
+            const lng = mapCenter.lng;
+
+            const trafficPaths = [
+                // Red Line Congested Area
+                [[lat - 0.01, lng - 0.02], [lat, lng + 0.01], [lat + 0.01, lng + 0.03]],
+                // Green Line Free Flow Area
+                [[lat + 0.02, lng - 0.01], [lat + 0.03, lng + 0.02]],
+                // Yellow Line Slow Traffic
+                [[lat - 0.03, lng - 0.03], [lat - 0.01, lng + 0.02]]
+            ];
+
+            const colors = ['#ea4335', '#34a853', '#fbbc05'];
+            const polylines = [];
+
+            trafficPaths.forEach((path, idx) => {
+                const poly = L.polyline(path, {
+                    color: colors[idx % colors.length],
+                    weight: 6,
+                    opacity: 0.75,
+                    dashArray: idx === 0 ? '10, 10' : null // congested dashes
+                }).addTo(map);
+                polylines.push(poly);
+            });
+
+            trafficOverlayLayer = L.featureGroup(polylines);
+            showAlert("Live traffic overlay activated!");
+        }
+
+        function removeTrafficOverlay() {
+            if (trafficOverlayLayer) {
+                map.removeLayer(trafficOverlayLayer);
+                trafficOverlayLayer = null;
+                showAlert("Traffic overlay disabled.");
+            }
+        }
+
+        // On map click, set Destination waypoint directly
+        map.on('click', function(e) {
+            endCoords = e.latlng;
+            try {
+                geocoder.reverse(e.latlng, map.getZoom(), (results) => {
+                    if (results && results[0]) {
+                        document.getElementById('end-search').value = results[0].name;
+                    } else {
+                        document.getElementById('end-search').value = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+                    }
+                    switchTab('directions');
+                    showAlert("Map location picked as Destination");
+                });
+            } catch (err) {
+                console.error("Safely bypassed reverse-geocoding rate-limit error: ", err);
+                document.getElementById('end-search').value = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+                switchTab('directions');
+                showAlert("Picked coordinates directly!");
+            }
+        });
+
+        // Socket IO Live Receivers (if socket engine is run on server)
+        function setupSocketListeners() {
+            if (!socket) return;
+            
+            socket.on('receive-location', (data) => {
+                const { id, latitude, longitude } = data;
+                if (id === socket.id) return; // Skip self
+
+                if (markers[id]) {
+                    markers[id].setLatLng([latitude, longitude]);
+                } else {
+                    // Create stylish google maps visitor pin
+                    const peerIcon = L.divIcon({
+                        className: '',
+                        html: '<div class="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center border-2 border-white shadow-lg animate-bounce"><i class="fa-solid fa-user-astronaut text-xs"></i></div>',
+                        iconSize: [28, 28],
+                        iconAnchor: [14, 14]
+                    });
+                    
+                    markers[id] = L.marker([latitude, longitude], { icon: peerIcon }).addTo(map);
+                    markers[id].bindPopup(`<b>Peer User:</b> ${id.substring(0, 5)}`);
+                }
+            });
+
+            socket.on('user-disconnected', (id) => {
+                if (markers[id]) {
+                    map.removeLayer(markers[id]);
+                    delete markers[id];
+                }
+            });
+        }
+
+        // Initial launch procedures
+        window.onload = function() {
+            initializeGPS();
+        };
+
+    </script>
+</body>
+</html>
